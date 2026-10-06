@@ -72,6 +72,7 @@ npm run check      # 仅做类型检查
 | `/voicings` | 整音与维修 | Voicing、Piano | 登记毡槌/击弦机/换弦/踏板事项、按钢琴汇总维修履历、切换计划/已完成（完成回写钢琴状态） |
 | `/environments` | 琴房温湿度记录 | Environment、Piano | 按日期录入温湿度、**超出建议区间（18–26 ℃ / 40–60 %）自动判定并用 Tailwind 高亮超标行**、超标天数统计 |
 | `/reminders` | 调律周期提醒与导出 | Reminder 及全部模型 | 由周期与上次调律日期推算下次建议日期、**超期琴置顶**、按场所批量筛选、单琴档案与整库 JSON 导出导入 |
+| `/conflicts` | 待确认中心 | PendingChange 及全部模型 | 多标签页同字段冲突逐字段选择保留已生效 / 采用后到值，缺来源补填确认，支持单条与整批确认 / 放弃，侧栏待确认数量徽标实时更新 |
 
 ---
 
@@ -92,21 +93,23 @@ sologsb101-1030/
     ├── public/favicon.svg
     └── src/
         ├── main.ts  App.svelte  app.css  vite-env.d.ts
-        ├── lib/types/              # piano.ts tuning.ts voicing.ts environment.ts reminder.ts filter.ts
-        ├── lib/stores/             # pianoStore tuningStore voicingStore environmentStore reminderStore
+        ├── lib/types/              # piano.ts tuning.ts voicing.ts environment.ts reminder.ts pending.ts filter.ts
+        ├── lib/stores/             # pianoStore tuningStore voicingStore environmentStore reminderStore syncStore
         ├── lib/components/common/  # CentsTag.svelte FilterBar.svelte StatBadge.svelte EmptyPanel.svelte
         ├── lib/hooks/              # useCentsDeviation.ts useIdbTable.ts
-        ├── lib/utils/              # cents.ts db.ts export.ts seed.ts uuid.ts query.ts
+        ├── lib/utils/              # cents.ts db.ts export.ts seed.ts uuid.ts query.ts syncBus.ts merge.ts entityFields.ts recompute.ts
         ├── lib/router/index.ts     # 路由表与导航配置
-        └── routes/                 # pianos/ tunings/ voicings/ environments/ reminders/ 各一个 +page.svelte
+        └── routes/                 # pianos/ tunings/ voicings/ environments/ reminders/ conflicts/ 各一个 +page.svelte
 ```
 
 ---
 
 ## 六、数据存储说明
 
-- **IndexedDB 库名**：`gbpianotune-db`（Dexie 封装），结构版本号 `version(1)`，并带 `upgrade()` 迁移逻辑（为历史行补齐行修订号与时间戳）。
-- **分表存储**：`pianos` 钢琴、`tunings` 调律、`voicings` 整音维修、`environments` 琴房环境、`reminders` 周期提醒，共 5 张表；每行带 `revision` / `createdAt` / `updatedAt`。
+- **IndexedDB 库名**：`gbpianotune-db`（Dexie 封装），结构版本号 `version(2)`。v1 为五张实体表；v2 新增 `pendingChanges` 待确认表，打开数据库时自动执行历史数据迁移（为旧行补修订号与时间戳，调律 / 维修缺来源先标待确认），迁移幂等，重试不重复。
+- **分表存储**：`pianos` 钢琴、`tunings` 调律、`voicings` 整音维修、`environments` 琴房环境、`reminders` 周期提醒、`pendingChanges` 待确认，共 6 张表；实体每行带 `revision` / `createdAt` / `updatedAt` / `updatedBy`。
+- **多标签页并发保存**：所有写入走统一提交入口 `commitChanges()`，一批写入一个 IndexedDB 事务，任何一条失败整批回滚。提交携带编辑前的原始行（含修订号）：两个标签页改的是不同字段时按字段三方合并直接生效；改的是同一字段且值不同时，已生效内容保持不动，双方的值与操作人保留在 `pendingChanges` 中，由「待确认中心」（`/conflicts`）逐字段确认或整体放弃，确认前任何一方都不能覆盖对方。待确认按 `pd-{表}-{记录id}` 确定性 id 去重，重复提交 / 重试迁移不会产生重复条目。
+- **确认 / 放弃后立即重算**：在同一事务内重算钢琴档案状态、最近调律音分（平均 / 最大与各音区对齐）、复调标记（超阈值自动置位）、琴房超标标记与周期提醒（最近调律日期 → 下次建议日期 → 状态），并通过 `localStorage` storage 事件通知其他标签页立即刷新（实体行由 Dexie `liveQuery` 自动响应）。
 - **首屏自动播种**：`lib/utils/db.ts` 的 `initDatabase()` 在 `pianos` 表为空时调用 `seedDatabase()`，灌入互相引用的三层演示数据（钢琴 → 调律记录 → 维修 / 环境 → 提醒），其中包含 1 台超期琴与 2 条异常环境记录，保证 5 个页面首次打开都有内容；播种幂等，清空后重进会重新播种。
 - **音分换算**：`lib/utils/cents.ts` 提供 `cents = 1200 × log2(f / f0)` 与反算、与标准音 A4 = 440 Hz 的比对、偏差分档（±5 / ±10 / ±20 / ±20 以上）与配色映射。
 - **无后端**：没有 API 服务、没有数据库容器；容器本身无状态，不挂载任何卷。

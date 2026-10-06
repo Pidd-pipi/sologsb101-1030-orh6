@@ -33,6 +33,7 @@
 
   let dialogOpen = $state(false);
   let editingId = $state<string | null>(null);
+  let editingBase = $state<VoicingRow | null>(null);
   let form = $state<Omit<Voicing, 'id'>>(createEmptyVoicing());
   let formError = $state<string | null>(null);
 
@@ -94,6 +95,7 @@
 
   function openCreate(pianoId?: string): void {
     editingId = null;
+    editingBase = null;
     form = createEmptyVoicing();
     const preset = pianoId ?? (typeof router.querystring === 'string' && router.querystring.includes('pianoIds=')
       ? (router.querystring.split('pianoIds=')[1] ?? '').split('&')[0]
@@ -105,6 +107,7 @@
 
   function openEdit(voicing: VoicingRow): void {
     editingId = voicing.id;
+    editingBase = voicing;
     form = {
       pianoId: voicing.pianoId,
       type: voicing.type,
@@ -112,7 +115,8 @@
       material: voicing.material,
       date: voicing.date,
       operator: voicing.operator,
-      state: voicing.state
+      state: voicing.state,
+      source: voicing.source ?? ''
     };
     formError = null;
     dialogOpen = true;
@@ -127,12 +131,16 @@
       formError = '请填写操作人';
       return;
     }
-    if (editingId) {
-      await editVoicing(editingId, { ...form });
-    } else {
-      await createVoicing({ ...form });
+    try {
+      if (editingId) {
+        await editVoicing(editingId, { ...form }, editingBase);
+      } else {
+        await createVoicing({ ...form });
+      }
+      dialogOpen = false;
+    } catch (error) {
+      formError = error instanceof Error ? error.message : '保存失败，本批修改已回滚';
     }
-    dialogOpen = false;
   }
 
   async function complete(voicing: VoicingRow): Promise<void> {
@@ -219,6 +227,7 @@
               <th class="py-2">部件</th>
               <th class="py-2">材料与规格</th>
               <th class="py-2">操作人</th>
+              <th class="py-2">来源</th>
               <th class="py-2">状态</th>
               <th class="py-2">操作</th>
             </tr>
@@ -231,6 +240,7 @@
                 <td class="py-2">{voicing.parts}</td>
                 <td class="py-2">{voicing.material || '—'}</td>
                 <td class="py-2">{voicing.operator}</td>
+                <td class="py-2 text-xs text-stone-400">{voicing.source || '缺来源·待确认'}</td>
                 <td class="py-2">
                   <span
                     class="rounded-full px-2 py-0.5 text-xs {voicing.state === '已完成'
@@ -314,6 +324,10 @@
               <option value={item}>{item}</option>
             {/each}
           </select>
+        </div>
+        <div class="md:col-span-2">
+          <span class="label">数据来源（缺来源会先进入待确认）</span>
+          <input class="field" bind:value={form.source} placeholder="如：陆师傅 · 现场录入" />
         </div>
       </div>
       <div class="mt-5 flex justify-end gap-2">

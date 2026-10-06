@@ -33,6 +33,7 @@
 
   let dialogOpen = $state(false);
   let editingId = $state<string | null>(null);
+  let editingBase = $state<EnvironmentRow | null>(null);
   let form = $state<Omit<Environment, 'id'>>(createEmptyEnvironment());
   let formError = $state<string | null>(null);
 
@@ -79,6 +80,7 @@
 
   function openCreate(): void {
     editingId = null;
+    editingBase = null;
     form = createEmptyEnvironment();
     form.pianoId = $pianos[0]?.id ?? '';
     form.abnormal = isAbnormal(form.tempC, form.humidityPct);
@@ -88,6 +90,7 @@
 
   function openEdit(row: EnvironmentRow): void {
     editingId = row.id;
+    editingBase = row;
     form = {
       pianoId: row.pianoId,
       date: row.date,
@@ -115,12 +118,16 @@
       return;
     }
     recalc();
-    if (editingId) {
-      await editEnvironment(editingId, { ...form });
-    } else {
-      await createEnvironment({ ...form });
+    try {
+      if (editingId) {
+        await editEnvironment(editingId, { ...form }, editingBase);
+      } else {
+        await createEnvironment({ ...form });
+      }
+      dialogOpen = false;
+    } catch (error) {
+      formError = error instanceof Error ? error.message : '保存失败，本批修改已回滚';
     }
-    dialogOpen = false;
   }
 
   async function remove(row: EnvironmentRow): Promise<void> {

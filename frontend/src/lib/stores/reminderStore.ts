@@ -1,20 +1,20 @@
 /**
- * 周期提醒 store：维护调律周期、超期排序与下次建议日期推算。
+ * 周期提醒 store：维护调律周期、超期排序与批量提交动作。
+ * 更新周期 / 上次调律日期后，下次建议日期与状态由持久化层提交后立即重算；
+ * 调律记录变化也会在同一事务内联动重算提醒。
  */
 import { writable, type Writable } from 'svelte/store';
 import type { FilterModel } from '$lib/types/filter';
 import type { Reminder } from '$lib/types/reminder';
 import { addMonths, daysToDue, deriveReminderState, type ReminderState } from '$lib/types/reminder';
-import { putReminder, removeReminder, updateReminder as updateReminderRow } from '$lib/utils/db';
+import type { ReminderRow } from '$lib/utils/db';
 import { buildRow } from '$lib/hooks/useIdbTable';
+import { commitBatch } from './syncStore';
 
 export const REMINDER_FILTER_KEYS = ['states', 'venues'];
 
 /** 提醒筛选条件 */
 export const reminderFilters: Writable<FilterModel> = writable({ keyword: '', states: [], venues: [] });
-
-/** 超期琴数量（页脚与徽标展示） */
-export const overdueCount = writable(0);
 
 export function setReminderFilters(next: FilterModel): void {
   reminderFilters.set(next);
@@ -45,23 +45,32 @@ export function sortByUrgency<T extends { state: ReminderState; nextDueDate: str
 export async function createReminder(payload: Omit<Reminder, 'id'>): Promise<string> {
   const nextDueDate = payload.nextDueDate || computeNextDue(payload.lastTuningDate, payload.cycleMonths);
   const row = buildRow({ ...payload, nextDueDate, state: computeState(nextDueDate) }, 'reminder');
-  await putReminder(row);
+  await commitBatch([{ table: 'reminders', op: 'create', payload: row as unknown as Record<string, unknown> }]);
   return row.id;
 }
 
-/** 更新周期或上次调律日期后自动重算下次建议日期与状态 */
-export async function editReminder(id: string, patch: Partial<Reminder>): Promise<void> {
+/** 更新周期或上次调律日期：同步推算下次建议日期与状态后整行提交 */
+export async function editReminder(id: string, patch: Partial<Reminder>, base?: ReminderRow | null): Promise<void> {
   const next: Partial<Reminder> = { ...patch };
   if (patch.lastTuningDate !== undefined || patch.cycleMonths !== undefined) {
-    const cycle = patch.cycleMonths ?? 6;
-    const last = patch.lastTuningDate ?? '';
+    const cycle = patch.cycleMonths ?? base?.cycleMonths ?? 6;
+    const last = patch.lastTuningDate ?? base?.lastTuningDate ?? '';
     const nextDueDate = computeNextDue(last, cycle);
     next.nextDueDate = nextDueDate;
     next.state = computeState(nextDueDate);
   }
-  await updateReminderRow(id, next);
+  const payload = { ...(base ?? { id }), ...next, id } as unknown as Record<string, unknown>;
+  await commitBatch([
+    {
+      table: 'reminders',
+      op: 'update',
+      id,
+      payload,
+      base: (base ?? null) as unknown as Record<string, unknown> | null
+    }
+  ]);
 }
 
 export async function deleteReminder(id: string): Promise<void> {
-  await removeReminder(id);
+  await commitBatch([{ table: 'reminders', op: 'delete', id }]);
 }

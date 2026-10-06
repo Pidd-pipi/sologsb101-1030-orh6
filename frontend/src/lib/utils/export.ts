@@ -33,13 +33,14 @@ export interface PianoArchive {
   };
 }
 
-type WithRevision = { revision?: number; createdAt?: number; updatedAt?: number };
+type WithRevision = { revision?: number; createdAt?: number; updatedAt?: number; updatedBy?: string };
 
 function stripRevision<T extends WithRevision>(row: T): T {
   const copy = { ...row } as Record<string, unknown>;
   delete copy.revision;
   delete copy.createdAt;
   delete copy.updatedAt;
+  delete copy.updatedBy;
   return copy as T;
 }
 

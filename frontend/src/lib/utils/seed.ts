@@ -4,11 +4,11 @@
  * 其中包含 1 台超期琴与 2 条异常环境记录，保证 5 个页面第一次进入都有内容可看。
  */
 import type { PianoRow, TuningRow, VoicingRow, EnvironmentRow, ReminderRow } from './db';
-import { db, ROW_REVISION } from './db';
+import { db } from './db';
+import { stamp } from './syncBus';
 
 function rev<T>(row: T): T & { revision: number; createdAt: number; updatedAt: number } {
-  const now = Date.now();
-  return { ...row, revision: ROW_REVISION, createdAt: now, updatedAt: now };
+  return stamp(row);
 }
 
 const PIANOS: Array<Omit<PianoRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
@@ -27,7 +27,8 @@ const TUNINGS: Array<Omit<TuningRow, 'revision' | 'createdAt' | 'updatedAt'>> = 
     maxDeviationCents: -14.2,
     zones: { bass: -14.2, mid: -5.1, treble: -2.8 },
     technician: '陆师傅',
-    pitchRaised: false
+    pitchRaised: false,
+    source: '陆师傅 · 现场录入'
   },
   {
     id: 'tn-002',
@@ -38,7 +39,8 @@ const TUNINGS: Array<Omit<TuningRow, 'revision' | 'createdAt' | 'updatedAt'>> = 
     maxDeviationCents: 21.4,
     zones: { bass: 6.2, mid: 9.8, treble: 21.4 },
     technician: '顾老师',
-    pitchRaised: true
+    pitchRaised: true,
+    source: '顾老师 · 现场录入'
   },
   {
     id: 'tn-003',
@@ -49,14 +51,15 @@ const TUNINGS: Array<Omit<TuningRow, 'revision' | 'createdAt' | 'updatedAt'>> = 
     maxDeviationCents: -35,
     zones: { bass: -35, mid: -21.4, treble: -12.6 },
     technician: '陆师傅',
-    pitchRaised: true
+    pitchRaised: true,
+    source: '陆师傅 · 现场录入'
   }
 ];
 
 const VOICINGS: Array<Omit<VoicingRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
-  { id: 'vo-001', pianoId: 'pn-002', type: '整音', parts: '毡槌', material: '进口羊毛毡 · 中硬度', date: '2024-03-21', operator: '顾老师', state: '已完成' },
-  { id: 'vo-002', pianoId: 'pn-003', type: '换弦', parts: '琴弦', material: '德国 Roslau 0.9mm', date: '2024-04-15', operator: '陆师傅', state: '计划' },
-  { id: 'vo-003', pianoId: 'pn-001', type: '击弦机调整', parts: '联动杆', material: '原厂联动杆 · 间隙 0.2mm', date: '2024-04-08', operator: '陆师傅', state: '已完成' }
+  { id: 'vo-001', pianoId: 'pn-002', type: '整音', parts: '毡槌', material: '进口羊毛毡 · 中硬度', date: '2024-03-21', operator: '顾老师', state: '已完成', source: '顾老师 · 现场录入' },
+  { id: 'vo-002', pianoId: 'pn-003', type: '换弦', parts: '琴弦', material: '德国 Roslau 0.9mm', date: '2024-04-15', operator: '陆师傅', state: '计划', source: '陆师傅 · 电话登记' },
+  { id: 'vo-003', pianoId: 'pn-001', type: '击弦机调整', parts: '联动杆', material: '原厂联动杆 · 间隙 0.2mm', date: '2024-04-08', operator: '陆师傅', state: '已完成', source: '陆师傅 · 现场录入' }
 ];
 
 const ENVIRONMENTS: Array<Omit<EnvironmentRow, 'revision' | 'createdAt' | 'updatedAt'>> = [

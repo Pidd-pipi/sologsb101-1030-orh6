@@ -4,6 +4,7 @@
   import { activeNav, NAV_ITEMS, router } from '$lib/router';
   import RouteView from '$lib/router/RouteView.svelte';
   import { countAll, initDatabase, DB_NAME, DB_SCHEMA_VERSION } from '$lib/utils/db';
+  import { installSyncListener, pendingCountStore, syncPulse } from '$lib/stores/syncStore';
 
   let counts = $state<Record<string, number>>({});
   let dbReady = $state(false);
@@ -19,6 +20,10 @@
   }
 
   onMount(() => {
+    // 其他标签页确认 / 放弃 / 提交后，本标签页立即刷新侧栏统计（实体行由 liveQuery 自动更新）
+    const dispose = installSyncListener(() => {
+      void refreshCounts();
+    });
     void (async () => {
       try {
         await initDatabase();
@@ -28,11 +33,13 @@
         dbError = error instanceof Error ? error.message : '本地数据库初始化失败';
       }
     })();
+    return dispose;
   });
 
-  // 路径变化时刷新侧栏统计；未知路径由路由表 '*' 渲染兜底页，不做重定向，保留原地址便于用户改回
+  // 路径变化或收到其他标签页的提交 / 确认通知时刷新侧栏统计（实体行由 liveQuery 自动更新）
   $effect(() => {
     void router.location;
+    void $syncPulse;
     void refreshCounts();
   });
 </script>
@@ -58,7 +65,11 @@
         >
           <span aria-hidden="true">{item.icon}</span>
           <span class="flex-1">{item.label}</span>
-          <span class="text-[10px] text-stone-500">{item.hint}</span>
+          {#if item.path === '/conflicts' && $pendingCountStore > 0}
+            <span class="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">{$pendingCountStore}</span>
+          {:else}
+            <span class="text-[10px] text-stone-500">{item.hint}</span>
+          {/if}
         </a>
       {/each}
     </nav>
@@ -67,6 +78,7 @@
       <div>本地库 {DB_NAME} · v{DB_SCHEMA_VERSION}</div>
       <div>钢琴 {counts.pianos ?? 0} · 调律 {counts.tunings ?? 0} · 维修 {counts.voicings ?? 0}</div>
       <div>环境 {counts.environments ?? 0} · 提醒 {counts.reminders ?? 0}</div>
+      <div>待确认 {counts.pending ?? 0}</div>
       <div class="mt-1 text-stone-500">{dbReady ? '本地库已就绪' : '正在打开本地库…'}</div>
     </div>
   </aside>

@@ -41,6 +41,7 @@
 
   let dialogOpen = $state(false);
   let editingId = $state<string | null>(null);
+  let editingBase = $state<ReminderRow | null>(null);
   let form = $state<Omit<Reminder, 'id'>>(createEmptyReminder());
   let formError = $state<string | null>(null);
   let counts = $state<Record<string, number>>({});
@@ -102,6 +103,7 @@
 
   function openCreate(): void {
     editingId = null;
+    editingBase = null;
     form = createEmptyReminder();
     form.pianoId = $pianos[0]?.id ?? '';
     const last = lastTuningOf(form.pianoId);
@@ -116,6 +118,7 @@
 
   function openEdit(reminder: ReminderRow): void {
     editingId = reminder.id;
+    editingBase = reminder;
     form = {
       pianoId: reminder.pianoId,
       cycleMonths: reminder.cycleMonths,
@@ -155,13 +158,17 @@
       return;
     }
     recalc();
-    if (editingId) {
-      await editReminder(editingId, { ...form });
-    } else {
-      await createReminder({ ...form });
+    try {
+      if (editingId) {
+        await editReminder(editingId, { ...form }, editingBase);
+      } else {
+        await createReminder({ ...form });
+      }
+      await refreshCounts();
+      dialogOpen = false;
+    } catch (error) {
+      formError = error instanceof Error ? error.message : '保存失败，本批修改已回滚';
     }
-    await refreshCounts();
-    dialogOpen = false;
   }
 
   async function remove(reminder: ReminderRow): Promise<void> {

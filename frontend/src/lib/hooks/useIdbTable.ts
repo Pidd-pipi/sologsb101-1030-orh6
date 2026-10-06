@@ -4,7 +4,6 @@
  */
 import { readable, type Readable } from 'svelte/store';
 import { liveQuery, type Table } from 'dexie';
-import { ROW_REVISION } from '$lib/utils/db';
 import { createId } from '$lib/utils/uuid';
 
 export interface IdbRecord {
@@ -13,12 +12,9 @@ export interface IdbRecord {
   updatedAt?: number;
 }
 
-/** 带 id / 修订号 / 时间戳的持久化行 */
-export interface StampedRow {
+/** 待写入的新记录（id 在前端生成；revision / 时间戳由 commitChanges 统一盖章） */
+export interface DraftRow {
   id: string;
-  revision: number;
-  createdAt: number;
-  updatedAt: number;
 }
 
 /** 默认排序：最近更新的排前面 */
@@ -46,14 +42,10 @@ export function useIdbTable<T extends IdbRecord>(
   });
 }
 
-/** 组装一行带 id / 修订号 / 时间戳的持久化记录 */
-export function buildRow<T extends object>(payload: T, prefix: string): T & StampedRow {
-  const now = Date.now();
+/** 组装一条带前端 id 的新建记录（修订号 / 时间戳由持久化层统一补） */
+export function buildRow<T extends object>(payload: T, prefix: string): T & DraftRow {
   return {
     ...payload,
-    id: createId(prefix),
-    revision: ROW_REVISION,
-    createdAt: now,
-    updatedAt: now
-  } as T & StampedRow;
+    id: createId(prefix)
+  } as T & DraftRow;
 }

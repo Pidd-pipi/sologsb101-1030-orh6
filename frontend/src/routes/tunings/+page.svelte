@@ -35,6 +35,7 @@
 
   let dialogOpen = $state(false);
   let editingId = $state<string | null>(null);
+  let editingBase = $state<TuningRow | null>(null);
   let form = $state<Omit<Tuning, 'id'>>(createEmptyTuning());
   let formError = $state<string | null>(null);
 
@@ -102,6 +103,7 @@
 
   function openCreate(): void {
     editingId = null;
+    editingBase = null;
     form = createEmptyTuning();
     if ($pianos.length > 0) form.pianoId = $pianos[0].id;
     formError = null;
@@ -110,6 +112,7 @@
 
   function openEdit(tuning: TuningRow): void {
     editingId = tuning.id;
+    editingBase = tuning;
     form = {
       pianoId: tuning.pianoId,
       date: tuning.date,
@@ -118,7 +121,8 @@
       maxDeviationCents: tuning.maxDeviationCents,
       zones: { ...tuning.zones },
       technician: tuning.technician,
-      pitchRaised: tuning.pitchRaised
+      pitchRaised: tuning.pitchRaised,
+      source: tuning.source ?? ''
     };
     formError = null;
     dialogOpen = true;
@@ -139,12 +143,16 @@
     }
     recalc();
     const payload = { ...form, zones: { ...form.zones } };
-    if (editingId) {
-      await editTuning(editingId, payload);
-    } else {
-      await createTuning(payload);
+    try {
+      if (editingId) {
+        await editTuning(editingId, payload, editingBase);
+      } else {
+        await createTuning(payload);
+      }
+      dialogOpen = false;
+    } catch (error) {
+      formError = error instanceof Error ? error.message : '保存失败，本批修改已回滚';
     }
-    dialogOpen = false;
   }
 
   async function remove(tuning: TuningRow): Promise<void> {
@@ -242,6 +250,7 @@
             <th class="py-2">最大偏差</th>
             <th class="py-2">低 / 中 / 高音区</th>
             <th class="py-2">调律师</th>
+            <th class="py-2">来源</th>
             <th class="py-2">复调</th>
             <th class="py-2">操作</th>
           </tr>
@@ -261,6 +270,7 @@
                 {tuning.zones.bass} / {tuning.zones.mid} / {tuning.zones.treble}
               </td>
               <td class="py-2">{tuning.technician}</td>
+              <td class="py-2 text-xs text-stone-400">{tuning.source || '缺来源·待确认'}</td>
               <td class="py-2">
                 {#if tuning.pitchRaised}
                   <span class="rounded-full bg-rose-100 px-2 py-0.5 text-xs text-rose-700">需复调</span>
@@ -314,6 +324,10 @@
         <div>
           <span class="label">调律师</span>
           <input class="field" bind:value={form.technician} placeholder="如：陆师傅" />
+        </div>
+        <div class="md:col-span-2">
+          <span class="label">数据来源（缺来源会先进入待确认）</span>
+          <input class="field" bind:value={form.source} placeholder="如：陆师傅 · 现场录入" />
         </div>
       </div>
 

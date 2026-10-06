@@ -29,6 +29,7 @@
 
   let dialogOpen = $state(false);
   let editingId = $state<string | null>(null);
+  let editingBase = $state<PianoRow | null>(null);
   let form = $state<Omit<Piano, 'id'>>(createEmptyPiano());
   let formError = $state<string | null>(null);
 
@@ -78,6 +79,7 @@
 
   function openCreate(): void {
     editingId = null;
+    editingBase = null;
     form = createEmptyPiano();
     formError = null;
     dialogOpen = true;
@@ -85,6 +87,7 @@
 
   function openEdit(piano: PianoRow): void {
     editingId = piano.id;
+    editingBase = piano;
     form = {
       brand: piano.brand,
       model: piano.model,
@@ -103,12 +106,16 @@
       formError = '请填写品牌与型号';
       return;
     }
-    if (editingId) {
-      await editPiano(editingId, { ...form });
-    } else {
-      await createPiano({ ...form });
+    try {
+      if (editingId) {
+        await editPiano(editingId, { ...form }, editingBase);
+      } else {
+        await createPiano({ ...form });
+      }
+      dialogOpen = false;
+    } catch (error) {
+      formError = error instanceof Error ? error.message : '保存失败，本批修改已回滚';
     }
-    dialogOpen = false;
   }
 
   async function remove(piano: PianoRow): Promise<void> {

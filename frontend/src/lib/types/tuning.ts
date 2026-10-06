@@ -27,6 +27,8 @@ export interface Tuning {
   technician: string;
   /** 是否需二次复调 */
   pitchRaised: boolean;
+  /** 数据来源（调律师 / 出处）；多标签协同时作为操作人留痕，缺失先标待确认 */
+  source?: string;
 }
 
 /** 标准基准音高 */
@@ -51,6 +53,7 @@ export function createEmptyTuning(): Omit<Tuning, 'id'> {
     maxDeviationCents: 0,
     zones: { bass: 0, mid: 0, treble: 0 },
     technician: '',
-    pitchRaised: false
+    pitchRaised: false,
+    source: ''
   };
 }

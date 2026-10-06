@@ -22,6 +22,8 @@ export interface Voicing {
   operator: string;
   /** 状态 */
   state: VoicingState;
+  /** 数据来源（操作人 / 出处）；多标签协同时作为操作人留痕，缺失先标待确认 */
+  source?: string;
 }
 
 export const VOICING_TYPES: VoicingType[] = ['整音', '换弦', '击弦机调整', '踏板调整'];
@@ -36,6 +38,7 @@ export function createEmptyVoicing(): Omit<Voicing, 'id'> {
     material: '',
     date: new Date().toISOString().slice(0, 10),
     operator: '',
-    state: '计划'
+    state: '计划',
+    source: ''
   };
 }

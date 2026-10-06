@@ -10,13 +10,14 @@
 export { installRouter, navigate, normalizePath, push, replace, resolveRoute, router } from './router.svelte';
 export type { InstallOptions, RouteMap, RouterState } from './router.svelte';
 
-/** 五个模块路径（与需求逐字一致） */
+/** 五个模块路径（与需求逐字一致）；conflicts 为多标签协同的待确认中心 */
 export const ROUTES = {
   pianos: '/pianos',
   tunings: '/tunings',
   voicings: '/voicings',
   environments: '/environments',
-  reminders: '/reminders'
+  reminders: '/reminders',
+  conflicts: '/conflicts'
 } as const;
 
 /** 根路径规范化后的默认模块 */
@@ -35,7 +36,8 @@ export const NAV_ITEMS: NavItem[] = [
   { path: ROUTES.tunings, label: '调律记录', icon: '🎼', hint: '基准音高与音分偏差' },
   { path: ROUTES.voicings, label: '整音与维修', icon: '🛠️', hint: '毡槌 / 击弦机 / 换弦' },
   { path: ROUTES.environments, label: '琴房环境', icon: '🌡️', hint: '温湿度与超标提示' },
-  { path: ROUTES.reminders, label: '周期提醒', icon: '⏰', hint: '超期琴与档案导出' }
+  { path: ROUTES.reminders, label: '周期提醒', icon: '⏰', hint: '超期琴与档案导出' },
+  { path: ROUTES.conflicts, label: '待确认中心', icon: '🔀', hint: '并发冲突与缺来源' }
 ];
 
 /** 已注册的路径（用于判断当前路径是否合法） */
