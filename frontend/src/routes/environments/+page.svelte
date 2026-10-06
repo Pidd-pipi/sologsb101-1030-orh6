@@ -16,6 +16,7 @@
     TEMP_RANGE,
     type Environment
   } from '$lib/types/environment';
+  import type { EditContext } from '$lib/types/edit';
   import {
     createEnvironment,
     deleteEnvironment,
@@ -25,6 +26,7 @@
     resetEnvironmentFilters,
     setEnvironmentFilters
   } from '$lib/stores/environmentStore';
+  import { pushNotice } from '$lib/stores/noticeStore';
   import type { FilterModel } from '$lib/types/filter';
   import { queryToFilters, toQueryString } from '$lib/utils/query';
 
@@ -33,8 +35,10 @@
 
   let dialogOpen = $state(false);
   let editingId = $state<string | null>(null);
+  let editContext = $state<EditContext<EnvironmentRow> | null>(null);
   let form = $state<Omit<Environment, 'id'>>(createEmptyEnvironment());
   let formError = $state<string | null>(null);
+  let saving = $state(false);
 
   function asArray(value: string | string[] | boolean | undefined): string[] {
     return Array.isArray(value) ? value : [];
@@ -79,6 +83,7 @@
 
   function openCreate(): void {
     editingId = null;
+    editContext = null;
     form = createEmptyEnvironment();
     form.pianoId = $pianos[0]?.id ?? '';
     form.abnormal = isAbnormal(form.tempC, form.humidityPct);
@@ -88,6 +93,7 @@
 
   function openEdit(row: EnvironmentRow): void {
     editingId = row.id;
+    editContext = { base: row };
     form = {
       pianoId: row.pianoId,
       date: row.date,
@@ -106,6 +112,7 @@
   }
 
   async function submit(): Promise<void> {
+    if (saving) return;
     if (!form.pianoId) {
       formError = '请选择钢琴';
       return;
@@ -115,17 +122,35 @@
       return;
     }
     recalc();
-    if (editingId) {
-      await editEnvironment(editingId, { ...form });
-    } else {
-      await createEnvironment({ ...form });
+    saving = true;
+    try {
+      if (editingId) {
+        const outcome = await editEnvironment(editingId, { payload: { ...form }, context: editContext ?? undefined });
+        if (outcome.conflicts > 0) {
+          pushNotice(`有 ${outcome.conflicts} 个字段与另一标签页冲突，已保留双方值，请到「待确认中心」处理`, 'warn', 6000);
+        } else {
+          pushNotice('环境记录已保存');
+        }
+      } else {
+        await createEnvironment({ ...form });
+        pushNotice('环境记录已新建');
+      }
+      dialogOpen = false;
+    } catch (error) {
+      pushNotice(error instanceof Error ? error.message : '保存失败，整批已回滚', 'error', 6000);
+    } finally {
+      saving = false;
     }
-    dialogOpen = false;
   }
 
   async function remove(row: EnvironmentRow): Promise<void> {
     if (!window.confirm(`删除 ${row.date} 的环境记录？`)) return;
-    await deleteEnvironment(row.id);
+    try {
+      await deleteEnvironment(row.id);
+      pushNotice('环境记录已删除');
+    } catch (error) {
+      pushNotice(error instanceof Error ? error.message : '删除失败，已回滚', 'error', 6000);
+    }
   }
 
   function applyFilters(next: FilterModel): void {
@@ -282,7 +307,7 @@
       </div>
       <div class="mt-5 flex justify-end gap-2">
         <button type="button" class="btn" onclick={() => (dialogOpen = false)}>取消</button>
-        <button type="button" class="btn-primary" onclick={submit}>保存</button>
+        <button type="button" class="btn-primary" onclick={submit} disabled={saving}>{saving ? '保存中…' : '保存'}</button>
       </div>
     </div>
   </div>

@@ -19,6 +19,7 @@
     type TuningRow
   } from '$lib/utils/db';
   import { createEmptyReminder, daysToDue, type Reminder } from '$lib/types/reminder';
+  import type { EditContext } from '$lib/types/edit';
   import {
     computeNextDue,
     computeState,
@@ -31,6 +32,7 @@
     setReminderFilters,
     sortByUrgency
   } from '$lib/stores/reminderStore';
+  import { pushNotice } from '$lib/stores/noticeStore';
   import { buildPianoArchive, downloadJson, parseArchive, serializeArchive } from '$lib/utils/export';
   import type { FilterModel } from '$lib/types/filter';
   import { queryToFilters, toQueryString } from '$lib/utils/query';
@@ -41,8 +43,10 @@
 
   let dialogOpen = $state(false);
   let editingId = $state<string | null>(null);
+  let editContext = $state<EditContext<ReminderRow> | null>(null);
   let form = $state<Omit<Reminder, 'id'>>(createEmptyReminder());
   let formError = $state<string | null>(null);
+  let saving = $state(false);
   let counts = $state<Record<string, number>>({});
   let archivePianoId = $state('');
   let archivePreview = $state('');
@@ -102,6 +106,7 @@
 
   function openCreate(): void {
     editingId = null;
+    editContext = null;
     form = createEmptyReminder();
     form.pianoId = $pianos[0]?.id ?? '';
     const last = lastTuningOf(form.pianoId);
@@ -116,6 +121,7 @@
 
   function openEdit(reminder: ReminderRow): void {
     editingId = reminder.id;
+    editContext = { base: reminder };
     form = {
       pianoId: reminder.pianoId,
       cycleMonths: reminder.cycleMonths,
@@ -146,6 +152,7 @@
   }
 
   async function submit(): Promise<void> {
+    if (saving) return;
     if (!form.pianoId) {
       formError = '请选择钢琴';
       return;
@@ -155,19 +162,37 @@
       return;
     }
     recalc();
-    if (editingId) {
-      await editReminder(editingId, { ...form });
-    } else {
-      await createReminder({ ...form });
+    saving = true;
+    try {
+      if (editingId) {
+        const outcome = await editReminder(editingId, { payload: { ...form }, context: editContext ?? undefined });
+        if (outcome.conflicts > 0) {
+          pushNotice(`有 ${outcome.conflicts} 个字段与另一标签页冲突，已保留双方值，请到「待确认中心」处理`, 'warn', 6000);
+        } else {
+          pushNotice('周期提醒已保存');
+        }
+      } else {
+        await createReminder({ ...form });
+        pushNotice('周期提醒已新建');
+      }
+      await refreshCounts();
+      dialogOpen = false;
+    } catch (error) {
+      pushNotice(error instanceof Error ? error.message : '保存失败，整批已回滚', 'error', 6000);
+    } finally {
+      saving = false;
     }
-    await refreshCounts();
-    dialogOpen = false;
   }
 
   async function remove(reminder: ReminderRow): Promise<void> {
     if (!window.confirm(`删除「${pianoLabel(reminder.pianoId)}」的周期提醒？`)) return;
-    await deleteReminder(reminder.id);
-    await refreshCounts();
+    try {
+      await deleteReminder(reminder.id);
+      await refreshCounts();
+      pushNotice('周期提醒已删除');
+    } catch (error) {
+      pushNotice(error instanceof Error ? error.message : '删除失败，已回滚', 'error', 6000);
+    }
   }
 
   async function previewArchive(): Promise<void> {
@@ -202,8 +227,10 @@
       await refreshCounts();
       importOpen = false;
       importText = '';
+      pushNotice('备份已导入；缺来源的旧数据已登记待确认，迁移重试不会重复', 'success', 6000);
     } catch (error) {
       importError = error instanceof Error ? error.message : '导入失败';
+      pushNotice('导入失败：整批已回滚，现有数据未改动', 'error', 6000);
     }
   }
 
@@ -368,6 +395,7 @@
         <div class="rounded-lg bg-stone-50 px-3 py-2">钢琴 / 调律：{counts.pianos ?? 0} / {counts.tunings ?? 0}</div>
         <div class="rounded-lg bg-stone-50 px-3 py-2">维修 / 环境：{counts.voicings ?? 0} / {counts.environments ?? 0}</div>
         <div class="rounded-lg bg-stone-50 px-3 py-2">提醒：{counts.reminders ?? 0}</div>
+        <div class="rounded-lg bg-stone-50 px-3 py-2">待确认操作：{counts.pending ?? 0}</div>
         <div class="rounded-lg bg-stone-50 px-3 py-2">超期琴：{totals.overdue} 台</div>
       </div>
       <div class="mt-3 flex flex-wrap gap-2">
@@ -419,7 +447,7 @@
       </div>
       <div class="mt-5 flex justify-end gap-2">
         <button type="button" class="btn" onclick={() => (dialogOpen = false)}>取消</button>
-        <button type="button" class="btn-primary" onclick={submit}>保存</button>
+        <button type="button" class="btn-primary" onclick={submit} disabled={saving}>{saving ? '保存中…' : '保存'}</button>
       </div>
     </div>
   </div>

@@ -1,6 +1,7 @@
 /**
  * 钢琴档案 JSON 序列化与校验
- * 提醒页用于导出单琴档案与整库备份，并校验导入内容。
+ * 提醒页用于导出单琴档案，并校验导入内容。
+ * 单琴档案导出的是业务字段 + 修订号/来源，方便人工核对；整库备份见 utils/db.ts。
  */
 import type { Piano } from '$lib/types/piano';
 import type { Tuning } from '$lib/types/tuning';
@@ -11,7 +12,7 @@ import { DB_NAME, DB_SCHEMA_VERSION, db, listEnvironments, listTunings, listVoic
 import { nowIso } from './uuid';
 import { zoneDistribution } from './cents';
 
-/** 单台钢琴档案 */
+/** 单台钢琴档案（行保留修订号 / 来源，便于归档核对） */
 export interface PianoArchive {
   name: string;
   schemaVersion: number;
@@ -33,13 +34,12 @@ export interface PianoArchive {
   };
 }
 
-type WithRevision = { revision?: number; createdAt?: number; updatedAt?: number };
-
-function stripRevision<T extends WithRevision>(row: T): T {
-  const copy = { ...row } as Record<string, unknown>;
-  delete copy.revision;
+/** 归档时去掉内部索引字段（保留 revision / source，供人工追溯） */
+function toArchiveRow<T>(row: T): T {
+  const copy = { ...(row as object) } as Record<string, unknown>;
   delete copy.createdAt;
   delete copy.updatedAt;
+  delete copy.lastClientId;
   return copy as T;
 }
 
@@ -63,11 +63,11 @@ export async function buildPianoArchive(pianoId: string): Promise<PianoArchive> 
     name: DB_NAME,
     schemaVersion: DB_SCHEMA_VERSION,
     exportedAt: nowIso(),
-    piano: stripRevision(piano),
-    tunings: tunings.map(stripRevision),
-    voicings: voicings.map(stripRevision),
-    environments: environments.map(stripRevision),
-    reminder: reminder ? stripRevision(reminder) : null,
+    piano: toArchiveRow(piano) as unknown as Piano,
+    tunings: tunings.map(toArchiveRow) as unknown as Tuning[],
+    voicings: voicings.map(toArchiveRow) as unknown as Voicing[],
+    environments: environments.map(toArchiveRow) as unknown as Environment[],
+    reminder: reminder ? (toArchiveRow(reminder) as unknown as Reminder) : null,
     summary: {
       tuningCount: tunings.length,
       avgDeviationCents: latest ? latest.avgDeviationCents : 0,
@@ -99,7 +99,9 @@ export function parseArchive(text: string): PianoArchive {
   const candidate = parsed as Partial<PianoArchive>;
   if (typeof candidate.name !== 'string') throw new Error('缺少 name 字段');
   if (typeof candidate.schemaVersion !== 'number') throw new Error('缺少 schemaVersion 字段');
-  if (!candidate.piano || typeof candidate.piano.id !== 'string') throw new Error('缺少 piano.id 字段');
+  if (!candidate.piano || typeof (candidate.piano as { id?: unknown }).id !== 'string') {
+    throw new Error('缺少 piano.id 字段');
+  }
   if (!Array.isArray(candidate.tunings)) throw new Error('tunings 必须是数组');
   return candidate as PianoArchive;
 }

@@ -1,13 +1,17 @@
 <script lang="ts">
-  /** 应用外壳：左侧导航 + 顶部概览 + 路由出口 */
+  /** 应用外壳：左侧导航 + 顶部概览 + 路由出口 + 待确认操作中心 */
   import { onMount } from 'svelte';
   import { activeNav, NAV_ITEMS, router } from '$lib/router';
   import RouteView from '$lib/router/RouteView.svelte';
+  import ConflictCenter from '$lib/components/common/ConflictCenter.svelte';
   import { countAll, initDatabase, DB_NAME, DB_SCHEMA_VERSION } from '$lib/utils/db';
+  import { pendingConflictCount } from '$lib/stores/conflictStore';
+  import { dismissNotice, notices } from '$lib/stores/noticeStore';
 
   let counts = $state<Record<string, number>>({});
   let dbReady = $state(false);
   let dbError = $state<string | null>(null);
+  let centerOpen = $state(false);
 
   const activePath = $derived(activeNav(router.location));
   const currentTitle = $derived(
@@ -35,6 +39,17 @@
     void router.location;
     void refreshCounts();
   });
+
+  // 待确认角标变化时同步统计
+  $effect(() => {
+    counts = { ...counts, pending: $pendingConflictCount };
+  });
+
+  const noticeToneClass = {
+    success: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    warn: 'border-amber-200 bg-amber-50 text-amber-800',
+    error: 'border-rose-200 bg-rose-50 text-rose-800'
+  } as const;
 </script>
 
 <div class="flex min-h-screen bg-ivory text-stone-800">
@@ -74,14 +89,42 @@
   <div class="flex flex-1 flex-col">
     <header class="flex items-center justify-between border-b border-stone-200 bg-white px-6 py-3">
       <h1 class="text-base font-semibold">{currentTitle}</h1>
-      <div class="text-xs text-stone-500">
-        数据仅保存在本机浏览器（IndexedDB / Dexie），无后端服务
+      <div class="flex items-center gap-3">
+        <button
+          type="button"
+          class="relative rounded-lg border border-stone-300 px-3 py-1.5 text-sm text-stone-600 transition hover:border-walnut hover:text-walnut"
+          onclick={() => (centerOpen = true)}
+        >
+          待确认中心
+          {#if $pendingConflictCount > 0}
+            <span class="absolute -right-2 -top-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1 text-[11px] font-bold text-white">
+              {$pendingConflictCount}
+            </span>
+          {/if}
+        </button>
+        <div class="text-xs text-stone-500">
+          数据仅保存在本机浏览器（IndexedDB / Dexie），无后端服务
+        </div>
       </div>
     </header>
 
     {#if dbError}
       <div class="mx-6 mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
         本地数据库初始化失败：{dbError}
+      </div>
+    {/if}
+
+    {#if $notices.length > 0}
+      <div class="pointer-events-none fixed right-6 top-16 z-[60] flex w-80 flex-col gap-2">
+        {#each $notices as notice (notice.id)}
+          <button
+            type="button"
+            class="pointer-events-auto rounded-lg border px-3 py-2 text-left text-sm shadow {noticeToneClass[notice.tone]}"
+            onclick={() => dismissNotice(notice.id)}
+          >
+            {notice.message}
+          </button>
+        {/each}
       </div>
     {/if}
 
@@ -94,3 +137,5 @@
     </footer>
   </div>
 </div>
+
+<ConflictCenter open={centerOpen} onclose={() => (centerOpen = false)} />

@@ -17,6 +17,7 @@
     ZONE_LABELS,
     type Tuning
   } from '$lib/types/tuning';
+  import type { EditContext } from '$lib/types/edit';
   import {
     createTuning,
     deleteTuning,
@@ -26,6 +27,7 @@
     TUNING_FILTER_KEYS,
     tuningFilters
   } from '$lib/stores/tuningStore';
+  import { pushNotice } from '$lib/stores/noticeStore';
   import { bandColor, barHeight, centsFromStandardPitch, formatCents, needsRepitch } from '$lib/utils/cents';
   import type { FilterModel, FilterSelectConfig } from '$lib/types/filter';
   import { queryToFilters, toQueryString } from '$lib/utils/query';
@@ -35,8 +37,10 @@
 
   let dialogOpen = $state(false);
   let editingId = $state<string | null>(null);
+  let editContext = $state<EditContext<TuningRow> | null>(null);
   let form = $state<Omit<Tuning, 'id'>>(createEmptyTuning());
   let formError = $state<string | null>(null);
+  let saving = $state(false);
 
   const selects = $derived<FilterSelectConfig[]>([
     {
@@ -102,6 +106,7 @@
 
   function openCreate(): void {
     editingId = null;
+    editContext = null;
     form = createEmptyTuning();
     if ($pianos.length > 0) form.pianoId = $pianos[0].id;
     formError = null;
@@ -110,6 +115,7 @@
 
   function openEdit(tuning: TuningRow): void {
     editingId = tuning.id;
+    editContext = { base: tuning };
     form = {
       pianoId: tuning.pianoId,
       date: tuning.date,
@@ -125,6 +131,7 @@
   }
 
   async function submit(): Promise<void> {
+    if (saving) return;
     if (!form.pianoId) {
       formError = '请选择钢琴';
       return;
@@ -139,17 +146,35 @@
     }
     recalc();
     const payload = { ...form, zones: { ...form.zones } };
-    if (editingId) {
-      await editTuning(editingId, payload);
-    } else {
-      await createTuning(payload);
+    saving = true;
+    try {
+      if (editingId) {
+        const outcome = await editTuning(editingId, { payload, context: editContext ?? undefined });
+        if (outcome.conflicts > 0) {
+          pushNotice(`有 ${outcome.conflicts} 个字段与另一标签页冲突，已保留双方值，请到「待确认中心」处理`, 'warn', 6000);
+        } else {
+          pushNotice('调律记录已保存，复调标记与提醒已重算');
+        }
+      } else {
+        await createTuning(payload);
+        pushNotice('调律记录已新建，复调标记与提醒已重算');
+      }
+      dialogOpen = false;
+    } catch (error) {
+      pushNotice(error instanceof Error ? error.message : '保存失败，整批已回滚', 'error', 6000);
+    } finally {
+      saving = false;
     }
-    dialogOpen = false;
   }
 
   async function remove(tuning: TuningRow): Promise<void> {
     if (!window.confirm(`删除 ${tuning.date} 的调律记录？`)) return;
-    await deleteTuning(tuning.id);
+    try {
+      await deleteTuning(tuning.id);
+      pushNotice('调律记录已删除');
+    } catch (error) {
+      pushNotice(error instanceof Error ? error.message : '删除失败，已回滚', 'error', 6000);
+    }
   }
 
   function applyFilters(next: FilterModel): void {
@@ -345,7 +370,7 @@
 
       <div class="mt-5 flex justify-end gap-2">
         <button type="button" class="btn" onclick={() => (dialogOpen = false)}>取消</button>
-        <button type="button" class="btn-primary" onclick={submit}>保存</button>
+        <button type="button" class="btn-primary" onclick={submit} disabled={saving}>{saving ? '保存中…' : '保存'}</button>
       </div>
     </div>
   </div>

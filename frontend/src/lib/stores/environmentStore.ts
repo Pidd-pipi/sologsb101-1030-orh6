@@ -1,11 +1,14 @@
 /**
  * 琴房环境 store：维护温湿度记录的筛选条件与增删改动作。
+ * 并发保存遵循字段级合并与待确认操作规则，单事务提交、失败整批回滚。
  */
 import { writable, type Writable } from 'svelte/store';
 import type { FilterModel } from '$lib/types/filter';
 import type { Environment } from '$lib/types/environment';
-import { putEnvironment, removeEnvironment, updateEnvironment as updateEnvironmentRow } from '$lib/utils/db';
-import { buildRow } from '$lib/hooks/useIdbTable';
+import type { EnvironmentRow } from '$lib/utils/db';
+import { deleteRecord, saveBatch, type SaveOutcome } from '$lib/utils/conflict';
+import { currentActor } from '$lib/utils/client';
+import type { SaveParams } from '$lib/types/edit';
 
 /** 参与 URL 同步的筛选键（switch 为「仅看超标记录」开关） */
 export const ENVIRONMENT_FILTER_KEYS = ['pianoIds', 'switch'];
@@ -26,15 +29,29 @@ export function resetEnvironmentFilters(): void {
 }
 
 export async function createEnvironment(payload: Omit<Environment, 'id'>): Promise<string> {
-  const row = buildRow(payload, 'environment');
-  await putEnvironment(row);
-  return row.id;
+  const outcomes = await saveBatch(currentActor(), [{ table: 'environments', payload, idPrefix: 'en' }]);
+  return outcomes[0]?.id ?? '';
 }
 
-export async function editEnvironment(id: string, patch: Partial<Environment>): Promise<void> {
-  await updateEnvironmentRow(id, patch);
+export async function editEnvironment(id: string, params: SaveParams<Omit<Environment, 'id'>>): Promise<SaveOutcome> {
+  const base = params.context?.base as EnvironmentRow | undefined;
+  const outcomes = await saveBatch(
+    currentActor(),
+    [
+      {
+        table: 'environments',
+        id,
+        payload: params.payload,
+        base: base as never,
+        baseRevision: base?.revision,
+        idPrefix: 'en'
+      }
+    ],
+    params.intentId
+  );
+  return outcomes[0] as SaveOutcome;
 }
 
 export async function deleteEnvironment(id: string): Promise<void> {
-  await removeEnvironment(id);
+  await deleteRecord('environments', id);
 }

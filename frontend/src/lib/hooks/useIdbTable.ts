@@ -1,24 +1,14 @@
 /**
- * Dexie 表增删改查与 Svelte store 响应式订阅封装。
- * 页面统一通过它读取 IndexedDB，避免组件内部直接触碰 Dexie 实例。
+ * Dexie 表订阅与 Svelte store 响应式封装。
+ * 页面统一通过它读取 IndexedDB，避免组件内部直接触碰 Dexie 实例；
+ * 写入一律走 $lib/utils/conflict 的并发保存引擎，不再由本模块构造行。
  */
 import { readable, type Readable } from 'svelte/store';
 import { liveQuery, type Table } from 'dexie';
-import { ROW_REVISION } from '$lib/utils/db';
-import { createId } from '$lib/utils/uuid';
 
 export interface IdbRecord {
   id: string;
-  createdAt?: number;
   updatedAt?: number;
-}
-
-/** 带 id / 修订号 / 时间戳的持久化行 */
-export interface StampedRow {
-  id: string;
-  revision: number;
-  createdAt: number;
-  updatedAt: number;
 }
 
 /** 默认排序：最近更新的排前面 */
@@ -28,7 +18,7 @@ function defaultCompare<T extends IdbRecord>(a: T, b: T): number {
 
 /**
  * 订阅一张 Dexie 表的全量数据（Svelte readable store）。
- * 组件里可直接用 `$rows` 自动订阅。
+ * 组件里可直接用 `$rows` 自动订阅；其他标签页写入后 liveQuery 同样会推送。
  */
 export function useIdbTable<T extends IdbRecord>(
   table: Table<T, string>,
@@ -44,16 +34,4 @@ export function useIdbTable<T extends IdbRecord>(
     });
     return () => subscription.unsubscribe();
   });
-}
-
-/** 组装一行带 id / 修订号 / 时间戳的持久化记录 */
-export function buildRow<T extends object>(payload: T, prefix: string): T & StampedRow {
-  const now = Date.now();
-  return {
-    ...payload,
-    id: createId(prefix),
-    revision: ROW_REVISION,
-    createdAt: now,
-    updatedAt: now
-  } as T & StampedRow;
 }

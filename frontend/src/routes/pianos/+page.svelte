@@ -11,6 +11,7 @@
   import { db, type PianoRow, type ReminderRow, type TuningRow } from '$lib/utils/db';
   import { PIANO_STATES, PIANO_TYPES, PIANO_VENUES, createEmptyPiano, type Piano } from '$lib/types/piano';
   import { daysToDue } from '$lib/types/reminder';
+  import type { EditContext } from '$lib/types/edit';
   import {
     createPiano,
     deletePiano,
@@ -20,6 +21,7 @@
     resetPianoFilters,
     setPianoFilters
   } from '$lib/stores/pianoStore';
+  import { pushNotice } from '$lib/stores/noticeStore';
   import type { FilterModel, FilterSelectConfig } from '$lib/types/filter';
   import { queryToFilters, toQueryString } from '$lib/utils/query';
 
@@ -29,8 +31,10 @@
 
   let dialogOpen = $state(false);
   let editingId = $state<string | null>(null);
+  let editContext = $state<EditContext<PianoRow> | null>(null);
   let form = $state<Omit<Piano, 'id'>>(createEmptyPiano());
   let formError = $state<string | null>(null);
+  let saving = $state(false);
 
   const brands = $derived(Array.from(new Set($pianos.map((item) => item.brand))).sort());
   const selects = $derived<FilterSelectConfig[]>([
@@ -78,6 +82,7 @@
 
   function openCreate(): void {
     editingId = null;
+    editContext = null;
     form = createEmptyPiano();
     formError = null;
     dialogOpen = true;
@@ -85,6 +90,8 @@
 
   function openEdit(piano: PianoRow): void {
     editingId = piano.id;
+    // 捕获打开时的整行与修订号，作为并发三方合并的基准
+    editContext = { base: piano };
     form = {
       brand: piano.brand,
       model: piano.model,
@@ -99,22 +106,41 @@
   }
 
   async function submit(): Promise<void> {
+    if (saving) return;
     if (!form.brand.trim() || !form.model.trim()) {
       formError = '请填写品牌与型号';
       return;
     }
-    if (editingId) {
-      await editPiano(editingId, { ...form });
-    } else {
-      await createPiano({ ...form });
+    saving = true;
+    try {
+      if (editingId) {
+        const outcome = await editPiano(editingId, { payload: { ...form }, context: editContext ?? undefined });
+        if (outcome.conflicts > 0) {
+          pushNotice(`有 ${outcome.conflicts} 个字段与另一标签页冲突，已保留双方值，请到「待确认中心」处理`, 'warn', 6000);
+        } else {
+          pushNotice('钢琴档案已保存');
+        }
+      } else {
+        await createPiano({ ...form });
+        pushNotice('钢琴档案已新建');
+      }
+      dialogOpen = false;
+    } catch (error) {
+      pushNotice(error instanceof Error ? error.message : '保存失败，整批已回滚', 'error', 6000);
+    } finally {
+      saving = false;
     }
-    dialogOpen = false;
   }
 
   async function remove(piano: PianoRow): Promise<void> {
     const confirmed = window.confirm(`删除「${piano.brand} ${piano.model}」会级联删除其调律、维修、环境与提醒记录，是否继续？`);
     if (!confirmed) return;
-    await deletePiano(piano.id);
+    try {
+      await deletePiano(piano.id);
+      pushNotice('钢琴档案及关联记录已删除');
+    } catch (error) {
+      pushNotice(error instanceof Error ? error.message : '删除失败，已回滚', 'error', 6000);
+    }
   }
 
   function applyFilters(next: FilterModel): void {
@@ -281,7 +307,7 @@
       </div>
       <div class="mt-5 flex justify-end gap-2">
         <button type="button" class="btn" onclick={() => (dialogOpen = false)}>取消</button>
-        <button type="button" class="btn-primary" onclick={submit}>保存</button>
+        <button type="button" class="btn-primary" onclick={submit} disabled={saving}>{saving ? '保存中…' : '保存'}</button>
       </div>
     </div>
   </div>

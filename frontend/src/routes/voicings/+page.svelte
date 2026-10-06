@@ -14,6 +14,7 @@
     VOICING_TYPES,
     type Voicing
   } from '$lib/types/voicing';
+  import type { EditContext } from '$lib/types/edit';
   import {
     completeVoicing,
     createVoicing,
@@ -24,6 +25,7 @@
     VOICING_FILTER_KEYS,
     voicingFilters
   } from '$lib/stores/voicingStore';
+  import { pushNotice } from '$lib/stores/noticeStore';
   import type { FilterModel } from '$lib/types/filter';
   import { queryToFilters, toQueryString } from '$lib/utils/query';
 
@@ -33,8 +35,10 @@
 
   let dialogOpen = $state(false);
   let editingId = $state<string | null>(null);
+  let editContext = $state<EditContext<VoicingRow> | null>(null);
   let form = $state<Omit<Voicing, 'id'>>(createEmptyVoicing());
   let formError = $state<string | null>(null);
+  let saving = $state(false);
 
   function asArray(value: string | string[] | boolean | undefined): string[] {
     return Array.isArray(value) ? value : [];
@@ -94,6 +98,7 @@
 
   function openCreate(pianoId?: string): void {
     editingId = null;
+    editContext = null;
     form = createEmptyVoicing();
     const preset = pianoId ?? (typeof router.querystring === 'string' && router.querystring.includes('pianoIds=')
       ? (router.querystring.split('pianoIds=')[1] ?? '').split('&')[0]
@@ -105,6 +110,7 @@
 
   function openEdit(voicing: VoicingRow): void {
     editingId = voicing.id;
+    editContext = { base: voicing };
     form = {
       pianoId: voicing.pianoId,
       type: voicing.type,
@@ -119,6 +125,7 @@
   }
 
   async function submit(): Promise<void> {
+    if (saving) return;
     if (!form.pianoId) {
       formError = '请选择钢琴';
       return;
@@ -127,21 +134,44 @@
       formError = '请填写操作人';
       return;
     }
-    if (editingId) {
-      await editVoicing(editingId, { ...form });
-    } else {
-      await createVoicing({ ...form });
+    saving = true;
+    try {
+      if (editingId) {
+        const outcome = await editVoicing(editingId, { payload: { ...form }, context: editContext ?? undefined });
+        if (outcome.conflicts > 0) {
+          pushNotice(`有 ${outcome.conflicts} 个字段与另一标签页冲突，已保留双方值，请到「待确认中心」处理`, 'warn', 6000);
+        } else {
+          pushNotice('维修事项已保存，钢琴状态已重算');
+        }
+      } else {
+        await createVoicing({ ...form });
+        pushNotice('维修事项已新建，钢琴状态已重算');
+      }
+      dialogOpen = false;
+    } catch (error) {
+      pushNotice(error instanceof Error ? error.message : '保存失败，整批已回滚', 'error', 6000);
+    } finally {
+      saving = false;
     }
-    dialogOpen = false;
   }
 
   async function complete(voicing: VoicingRow): Promise<void> {
-    await completeVoicing(voicing.id);
+    try {
+      await completeVoicing(voicing.id);
+      pushNotice('维修已完成，钢琴状态与派生态已重算');
+    } catch (error) {
+      pushNotice(error instanceof Error ? error.message : '操作失败，已回滚', 'error', 6000);
+    }
   }
 
   async function remove(voicing: VoicingRow): Promise<void> {
     if (!window.confirm(`删除 ${voicing.date} 的「${voicing.type}」记录？`)) return;
-    await deleteVoicing(voicing.id);
+    try {
+      await deleteVoicing(voicing.id);
+      pushNotice('维修记录已删除');
+    } catch (error) {
+      pushNotice(error instanceof Error ? error.message : '删除失败，已回滚', 'error', 6000);
+    }
   }
 
   function applyFilters(next: FilterModel): void {
@@ -318,7 +348,7 @@
       </div>
       <div class="mt-5 flex justify-end gap-2">
         <button type="button" class="btn" onclick={() => (dialogOpen = false)}>取消</button>
-        <button type="button" class="btn-primary" onclick={submit}>保存</button>
+        <button type="button" class="btn-primary" onclick={submit} disabled={saving}>{saving ? '保存中…' : '保存'}</button>
       </div>
     </div>
   </div>
