@@ -1,0 +1,28 @@
+{
+  "name": "gbpianotune-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "钢琴调律与琴房环境档案 - 纯前端 SPA（Svelte 5 + TypeScript + Vite + history 路由 + Tailwind CSS + Dexie）",
+  "scripts": {
+    "dev": "vite",
+    "build": "svelte-check --tsconfig ./tsconfig.json --threshold error && vite build",
+    "preview": "vite preview --port 22830",
+    "check": "svelte-check --tsconfig ./tsconfig.json --threshold error"
+  },
+  "dependencies": {
+    "dexie": "^4.0.11",
+    "svelte": "^5.19.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@tsconfig/svelte": "^5.0.4",
+    "@types/node": "^22.10.2",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "svelte-check": "^4.1.4",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7"
+  }
+}
